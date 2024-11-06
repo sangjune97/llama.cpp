@@ -12,9 +12,6 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-// TODO: for now, always use F32 for flash attention to avoid compiling 2 sets of kernels
-#define GGML_METAL_FORCE_FATTN_PREC_F32
-
 // max memory buffers that can be mapped to the device
 #define GGML_METAL_MAX_BUFFERS 64
 
@@ -483,9 +480,8 @@ static struct ggml_backend_metal_context * ggml_metal_init(ggml_backend_dev_t de
                 // dictionary of preprocessor macros
                 NSMutableDictionary * prep = [NSMutableDictionary dictionary];
 
-                // add GGML_METAL_FORCE_FATTN_PREC_F32
-#if defined(GGML_METAL_FORCE_FATTN_PREC_F32)
-                [prep setObject:@"1" forKey:@"GGML_METAL_FORCE_FATTN_PREC_F32"];
+#if defined(GGML_METAL_FORCE_FATTN_PREC_F16)
+                [prep setObject:@"1" forKey:@"GGML_METAL_FORCE_FATTN_PREC_F16"];
 #endif
 
                 MTLCompileOptions* options = [MTLCompileOptions new];
@@ -538,9 +534,14 @@ static struct ggml_backend_metal_context * ggml_metal_init(ggml_backend_dev_t de
         }
     }
 
-    GGML_LOG_INFO("%s: simdgroup reduction support   = %s\n", __func__, ctx_dev->support_simdgroup_reduction ? "true" : "false");
-    GGML_LOG_INFO("%s: simdgroup matrix mul. support = %s\n", __func__, ctx_dev->support_simdgroup_mm ? "true" : "false");
-    GGML_LOG_INFO("%s: hasUnifiedMemory              = %s\n", __func__, ctx_dev->mtl_device.hasUnifiedMemory ? "true" : "false");
+#if defined(GGML_METAL_FORCE_FATTN_PREC_F16)
+    GGML_LOG_INFO("%s: GGML_METAL_FORCE_FATTN_PREC_F16  = yes\n", __func__);
+#else
+    GGML_LOG_INFO("%s: GGML_METAL_FORCE_FATTN_PREC_F16  = no\n",  __func__);
+#endif
+    GGML_LOG_INFO("%s: simdgroup reduction support      = %s\n",  __func__, ctx_dev->support_simdgroup_reduction ? "true" : "false");
+    GGML_LOG_INFO("%s: simdgroup matrix mul. support    = %s\n",  __func__, ctx_dev->support_simdgroup_mm ? "true" : "false");
+    GGML_LOG_INFO("%s: hasUnifiedMemory                 = %s\n",  __func__, ctx_dev->mtl_device.hasUnifiedMemory ? "true" : "false");
 
     ctx->capture_next_compute = false;
     ctx->capture_started = false;
@@ -3153,10 +3154,12 @@ static void ggml_metal_encode_node(
                     GGML_ASSERT(nqptg  % 8  == 0);
                     GGML_ASSERT(ncpsg  % 32 == 0);
 
-#ifdef GGML_METAL_FORCE_FATTN_PREC_F32
+#ifdef GGML_METAL_FORCE_FATTN_PREC_F16
                     const enum ggml_prec prec = GGML_PREC_DEFAULT;
 #else
-                    const enum ggml_prec prec = ggml_flash_attn_ext_get_prec(dst);
+                    // TODO: support both precisions
+                    const enum ggml_prec prec = GGML_PREC_F32;
+                    //const enum ggml_prec prec = ggml_flash_attn_ext_get_prec(dst);
 #endif
 
                     const int64_t nhalfs = prec == GGML_PREC_DEFAULT ? 1 : 2;
